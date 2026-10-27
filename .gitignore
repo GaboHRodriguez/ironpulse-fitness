@@ -22,3 +22,5 @@ windows/flutter/ephemeral/
 
 # APK binaries > 50MB (se puede subir como GitHub Release)
 *.apk
+.gh_cli/
+
