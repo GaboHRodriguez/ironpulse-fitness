@@ -1,0 +1,24 @@
+# Flutter / Dart / Build outputs
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Android / Gradle local artifacts
+android/.gradle/
+android/captures/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Windows C++ build caches
+windows/flutter/ephemeral/
+
+# APK binaries > 50MB (se puede subir como GitHub Release)
+*.apk
