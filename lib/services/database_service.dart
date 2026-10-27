@@ -39,11 +39,69 @@ class DatabaseService {
     final docsDir = await getApplicationDocumentsDirectory();
     final String dbPath = join(docsDir.path, 'ironpulse_fitness_v1.db');
 
-    return await openDatabase(
+    final db = await openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: (db, oldV, newV) async {
+        await _syncCatalogExercises(db);
+      },
     );
+    await _syncCatalogExercises(db);
+    return db;
+  }
+
+  Future<void> _syncCatalogExercises(Database db) async {
+    final existingRows = await db.query('exercises');
+    final Map<String, Map<String, dynamic>> existingByName = {
+      for (final r in existingRows)
+        (r['name'] as String).toLowerCase(): r,
+    };
+
+    for (final seedEx in ExerciseCatalogSeed.initialExercises) {
+      final key = seedEx.name.toLowerCase();
+      if (!existingByName.containsKey(key)) {
+        // Si antes se llamaba "Curl Femoral Tumbado en Máquina (Lying Leg Curl)", actualizarlo
+        if (seedEx.movementPattern == 'lying_leg_curl' &&
+            existingByName.containsKey(
+                'curl femoral tumbado en máquina (lying leg curl)')) {
+          final oldId = existingByName[
+              'curl femoral tumbado en máquina (lying leg curl)']!['id'];
+          await db.update(
+            'exercises',
+            seedEx.toMap(),
+            where: 'id = ?',
+            whereArgs: [oldId],
+          );
+        } else if (seedEx.movementPattern == 'plank' &&
+            existingByName.containsKey(
+                'plancha abdominal isométrica (plank) / rueda abdominal')) {
+          final oldId = existingByName[
+              'plancha abdominal isométrica (plank) / rueda abdominal']!['id'];
+          await db.update(
+            'exercises',
+            seedEx.toMap(),
+            where: 'id = ?',
+            whereArgs: [oldId],
+          );
+        } else {
+          await db.insert('exercises', seedEx.toMap());
+        }
+      } else {
+        final existingId = existingByName[key]!['id'];
+        await db.update(
+          'exercises',
+          {
+            'movement_pattern': seedEx.movementPattern,
+            'external_media_url': seedEx.externalMediaUrl,
+            'instructions': seedEx.instructions,
+            'common_mistakes': seedEx.commonMistakes,
+          },
+          where: 'id = ?',
+          whereArgs: [existingId],
+        );
+      }
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -154,6 +212,43 @@ class DatabaseService {
         seeded.add(ex.toMap());
       }
       await prefs.setString('ip_exercises_v1', jsonEncode(seeded));
+    } else {
+      // Sincronizar nuevos ejercicios del catálogo sin perder los personalizados
+      final raw = prefs.getString('ip_exercises_v1') ?? '[]';
+      final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
+      final List<Exercise> currentList = decoded
+          .map((e) => Exercise.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      bool changed = false;
+      int maxId = currentList.isEmpty
+          ? 0
+          : currentList.map((e) => e.id ?? 0).reduce((a, b) => a > b ? a : b);
+
+      for (final seedEx in ExerciseCatalogSeed.initialExercises) {
+        final idx = currentList.indexWhere(
+          (e) =>
+              e.name.toLowerCase() == seedEx.name.toLowerCase() ||
+              (seedEx.movementPattern == 'lying_leg_curl' &&
+                  e.name.toLowerCase().contains('curl femoral tumbado')) ||
+              (seedEx.movementPattern == 'plank' &&
+                  e.name.toLowerCase().contains('plancha abdominal')),
+        );
+        if (idx == -1) {
+          maxId++;
+          currentList.add(seedEx.copyWith(id: maxId));
+          changed = true;
+        } else if (currentList[idx].movementPattern != seedEx.movementPattern ||
+            currentList[idx].name != seedEx.name) {
+          currentList[idx] = seedEx.copyWith(id: currentList[idx].id);
+          changed = true;
+        }
+      }
+      if (changed) {
+        await prefs.setString(
+          'ip_exercises_v1',
+          jsonEncode(currentList.map((e) => e.toMap()).toList()),
+        );
+      }
     }
     return prefs;
   }

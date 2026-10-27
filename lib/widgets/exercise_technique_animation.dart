@@ -470,9 +470,74 @@ class _BiomechanicsPainter extends CustomPainter {
           weightPlatePaint,
         );
         break;
-      case 'hip_thrust':
-      case 'crunch':
+      case 'lying_leg_curl':
+        _drawLyingLegCurlExercise(
+          canvas,
+          cx,
+          floorY,
+          equipPaint,
+          bodyPaint,
+          activeMusclePaint,
+          glowPaint,
+          weightPlatePaint,
+        );
+        break;
+      case 'isometric_squat':
+        _drawIsometricSquatExercise(
+          canvas,
+          cx,
+          floorY,
+          equipPaint,
+          bodyPaint,
+          activeMusclePaint,
+          glowPaint,
+        );
+        break;
       case 'plank':
+        _drawPlankExercise(
+          canvas,
+          cx,
+          floorY,
+          bodyPaint,
+          activeMusclePaint,
+          glowPaint,
+        );
+        break;
+      case 'kettlebell_swing':
+        _drawKettlebellSwingExercise(
+          canvas,
+          cx,
+          floorY,
+          bodyPaint,
+          activeMusclePaint,
+          glowPaint,
+          weightPlatePaint,
+        );
+        break;
+      case 'thruster':
+        _drawThrusterExercise(
+          canvas,
+          cx,
+          floorY,
+          equipPaint,
+          bodyPaint,
+          activeMusclePaint,
+          glowPaint,
+          weightPlatePaint,
+        );
+        break;
+      case 'crunch':
+        _drawCrunchExercise(
+          canvas,
+          cx,
+          floorY,
+          equipPaint,
+          bodyPaint,
+          activeMusclePaint,
+          glowPaint,
+        );
+        break;
+      case 'hip_thrust':
       default:
         _drawCoreOrHipThrustExercise(
           canvas,
@@ -912,6 +977,241 @@ class _BiomechanicsPainter extends CustomPainter {
     canvas.drawCircle(hip, 16, glowPaint);
 
     _drawWeightAt(canvas, Offset(hip.dx, hip.dy - 6), weightPaint, radius: 10);
+  }
+
+  // 1. CAMILLA DE ISQUIOS (Tumbado boca abajo flexionando talones a los glúteos)
+  void _drawLyingLegCurlExercise(
+    Canvas canvas,
+    double cx,
+    double floorY,
+    Paint equipPaint,
+    Paint bodyPaint,
+    Paint activePaint,
+    Paint glowPaint,
+    Paint weightPaint,
+  ) {
+    final benchY = floorY - 38;
+    // Camilla horizontal con leve quiebre anatómico y soportes al piso
+    canvas.drawLine(Offset(cx - 70, benchY + 6), Offset(cx - 20, benchY), equipPaint);
+    canvas.drawLine(Offset(cx - 20, benchY), Offset(cx + 25, benchY), equipPaint);
+    canvas.drawLine(Offset(cx - 52, benchY + 4), Offset(cx - 52, floorY), equipPaint);
+    canvas.drawLine(Offset(cx + 15, benchY), Offset(cx + 15, floorY), equipPaint);
+
+    // Atleta acostado boca abajo (prono) sobre la camilla
+    final head = Offset(cx - 64, benchY - 6);
+    final shoulder = Offset(cx - 48, benchY - 6);
+    final hip = Offset(cx - 12, benchY - 8);
+    final knee = Offset(cx + 26, benchY - 6);
+    final hand = Offset(cx - 68, benchY + 12);
+
+    canvas.drawCircle(head, 8.5, bodyPaint);
+    canvas.drawLine(shoulder, hand, bodyPaint);
+    canvas.drawLine(shoulder, hip, bodyPaint);
+    // Muslo posterior (isquiotibiales) iluminado en la camilla
+    canvas.drawLine(hip, knee, activePaint);
+    canvas.drawCircle(Offset((hip.dx + knee.dx) / 2, benchY - 8), 16, glowPaint);
+
+    // Flexión de rodilla: de pierna extendida (0.15 rad) a talón cerca del glúteo (2.25 rad)
+    final curlAngle = _lerp(0.12, 2.25, t);
+    final lowerLegLen = 38.0;
+    final ankle = Offset(
+      knee.dx + math.cos(curlAngle) * lowerLegLen,
+      knee.dy - math.sin(curlAngle) * lowerLegLen,
+    );
+
+    canvas.drawLine(knee, ankle, activePaint);
+    _drawWeightAt(canvas, ankle, weightPaint, radius: 8.5);
+  }
+
+  // 2. SENTADILLA ISOMÉTRICA EN PARED (Wall Sit 90° con pulso de tensión isométrica)
+  void _drawIsometricSquatExercise(
+    Canvas canvas,
+    double cx,
+    double floorY,
+    Paint equipPaint,
+    Paint bodyPaint,
+    Paint activePaint,
+    Paint glowPaint,
+  ) {
+    final wallX = cx - 32;
+    // Pared vertical de apoyo
+    final wallPaint = Paint()
+      ..color = const Color(0xFF475569)
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(wallX, floorY - 135), Offset(wallX, floorY), wallPaint);
+
+    // Atleta con espalda apoyada en la pared y rodillas/cadera a 90° exactos
+    final hip = Offset(wallX + 6, floorY - 42);
+    final shoulder = Offset(wallX + 6, hip.dy - 48);
+    final head = Offset(wallX + 8, shoulder.dy - 16);
+    final knee = Offset(hip.dx + 40, hip.dy);
+    final ankle = Offset(knee.dx, floorY);
+    final foot = Offset(ankle.dx + 14, floorY);
+
+    canvas.drawCircle(head, 9.5, bodyPaint);
+    canvas.drawLine(shoulder, hip, bodyPaint);
+    // Brazos extendidos al frente o al pecho manteniendo equilibrio
+    canvas.drawLine(shoulder, Offset(shoulder.dx + 28, shoulder.dy + 12), bodyPaint);
+
+    // Cuádriceps y glúteos en contracción isométrica constante (pulso de energía con t)
+    final pulseRadius = 14.0 + 7.0 * t;
+    canvas.drawCircle(
+      Offset((hip.dx + knee.dx) / 2, hip.dy),
+      pulseRadius,
+      glowPaint,
+    );
+    canvas.drawLine(hip, knee, activePaint);
+    canvas.drawLine(knee, ankle, bodyPaint);
+    canvas.drawLine(ankle, foot, bodyPaint);
+  }
+
+  // 3. PLANCHA ISOMÉTRICA (Plank horizontal sobre antebrazos con pulso en Core)
+  void _drawPlankExercise(
+    Canvas canvas,
+    double cx,
+    double floorY,
+    Paint bodyPaint,
+    Paint activePaint,
+    Paint glowPaint,
+  ) {
+    // Posición horizontal firme apoyando antebrazos y puntas de los pies
+    final elbow = Offset(cx - 46, floorY - 4);
+    final hand = Offset(cx - 64, floorY - 4);
+    final shoulder = Offset(cx - 44, floorY - 30);
+    final head = Offset(cx - 58, floorY - 34);
+    final hip = Offset(cx + 4, floorY - 26);
+    final knee = Offset(cx + 36, floorY - 16);
+    final foot = Offset(cx + 62, floorY - 4);
+
+    canvas.drawCircle(head, 8.5, bodyPaint);
+    // Antebrazo y brazo de apoyo
+    canvas.drawLine(hand, elbow, bodyPaint);
+    canvas.drawLine(elbow, shoulder, activePaint);
+    // Torso / Core alineado y contraído isométricamente
+    canvas.drawLine(shoulder, hip, activePaint);
+    canvas.drawLine(hip, knee, activePaint);
+    canvas.drawLine(knee, foot, bodyPaint);
+
+    // Halos de tensión isométrica en el abdomen y glúteos
+    final pulse = 14.0 + 8.0 * t;
+    canvas.drawCircle(Offset((shoulder.dx + hip.dx) / 2, (shoulder.dy + hip.dy) / 2), pulse, glowPaint);
+  }
+
+  // 4. SWING CON PESA RUSA / MANCUERNA (Bisagra explosiva de cadera + péndulo)
+  void _drawKettlebellSwingExercise(
+    Canvas canvas,
+    double cx,
+    double floorY,
+    Paint bodyPaint,
+    Paint activePaint,
+    Paint glowPaint,
+    Paint weightPaint,
+  ) {
+    // t=0: bisagra atrás con pesa entre las piernas | t=1: cadera extendida y pesa a altura del pecho
+    final torsoAngle = _lerp(0.88, 0.04, t);
+    final ankle = Offset(cx - 10, floorY);
+    final knee = Offset(cx + _lerp(10, 2, t), floorY - 40);
+    final hip = Offset(cx - _lerp(24, 4, t), floorY - 76);
+    final shoulder = Offset(
+      hip.dx + math.sin(torsoAngle) * 50,
+      hip.dy - math.cos(torsoAngle) * 50,
+    );
+    final head = Offset(
+      shoulder.dx + math.sin(torsoAngle) * 15,
+      shoulder.dy - math.cos(torsoAngle) * 15,
+    );
+
+    canvas.drawCircle(head, 9.5, bodyPaint);
+    canvas.drawLine(ankle, knee, bodyPaint);
+    canvas.drawLine(knee, hip, activePaint);
+    canvas.drawLine(hip, shoulder, activePaint);
+    canvas.drawCircle(hip, 17, glowPaint);
+
+    // Péndulo de los brazos y la Kettlebell desde entre las piernas (-0.45 rad) hasta horizontal al frente (1.45 rad)
+    final armAngle = _lerp(-0.45, 1.45, t);
+    final armLen = 46.0;
+    final hand = Offset(
+      shoulder.dx + math.sin(armAngle) * armLen,
+      shoulder.dy + math.cos(armAngle) * armLen,
+    );
+
+    canvas.drawLine(shoulder, hand, activePaint);
+    _drawWeightAt(canvas, hand, weightPaint, radius: 10.5);
+  }
+
+  // 5. SENTADILLAS CON EMPUJE (Thrusters: Sentadilla profunda + Press sobre la cabeza)
+  void _drawThrusterExercise(
+    Canvas canvas,
+    double cx,
+    double floorY,
+    Paint equipPaint,
+    Paint bodyPaint,
+    Paint activePaint,
+    Paint glowPaint,
+    Paint weightPaint,
+  ) {
+    // t=0: Sentadilla profunda con mancuernas en hombros | t=1: De pie con brazos extendidos sobre la cabeza
+    final depth = 1.0 - t;
+    final ankle = Offset(cx, floorY);
+    final knee = Offset(cx + 22 * depth, floorY - 40 + 12 * depth);
+    final hip = Offset(cx - 26 * depth, floorY - 82 + 34 * depth);
+    final shoulder = Offset(cx - 6 * depth, hip.dy - 48);
+    final head = Offset(shoulder.dx + 2, shoulder.dy - 16);
+
+    canvas.drawCircle(head, 9.5, bodyPaint);
+    canvas.drawLine(ankle, Offset(ankle.dx + 15, floorY), bodyPaint);
+    canvas.drawLine(ankle, knee, bodyPaint);
+    canvas.drawLine(knee, hip, activePaint);
+    canvas.drawLine(hip, shoulder, bodyPaint);
+    canvas.drawCircle(hip, 15, glowPaint);
+    canvas.drawCircle(shoulder, 15, glowPaint);
+
+    // Brazos: cuando está abajo (t=0) las manos están junto a los hombros; al subir (t=1) empujan sobre la cabeza
+    final pressProgress = ((t - 0.35) / 0.65).clamp(0.0, 1.0);
+    final elbow = Offset(
+      shoulder.dx + 12,
+      _lerp(shoulder.dy + 16, shoulder.dy - 24, pressProgress),
+    );
+    final hand = Offset(
+      shoulder.dx + 8,
+      _lerp(shoulder.dy - 2, shoulder.dy - 54, pressProgress),
+    );
+
+    canvas.drawLine(shoulder, elbow, activePaint);
+    canvas.drawLine(elbow, hand, activePaint);
+    _drawWeightAt(canvas, hand, weightPaint, radius: 9.5);
+  }
+
+  // 6. CRUNCH / FLEXIÓN ABDOMINAL
+  void _drawCrunchExercise(
+    Canvas canvas,
+    double cx,
+    double floorY,
+    Paint equipPaint,
+    Paint bodyPaint,
+    Paint activePaint,
+    Paint glowPaint,
+  ) {
+    final hip = Offset(cx, floorY - 6);
+    final knee = Offset(cx + 28, floorY - 34);
+    final foot = Offset(cx + 48, floorY);
+
+    final curlAngle = _lerp(0.15, 0.85, t);
+    final shoulder = Offset(
+      hip.dx - math.cos(curlAngle) * 48,
+      hip.dy - math.sin(curlAngle) * 48,
+    );
+    final head = Offset(
+      shoulder.dx - math.cos(curlAngle + 0.2) * 15,
+      shoulder.dy - math.sin(curlAngle + 0.2) * 15,
+    );
+
+    canvas.drawCircle(head, 9, bodyPaint);
+    canvas.drawLine(shoulder, hip, activePaint);
+    canvas.drawLine(hip, knee, bodyPaint);
+    canvas.drawLine(knee, foot, bodyPaint);
+    canvas.drawCircle(Offset((shoulder.dx + hip.dx) / 2, (shoulder.dy + hip.dy) / 2), 16, glowPaint);
   }
 
   void _drawWeightAt(

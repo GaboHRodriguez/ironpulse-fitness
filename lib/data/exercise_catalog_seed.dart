@@ -657,6 +657,37 @@ class ExerciseCatalogSeed {
       commonMistakes:
           'Alejar la pesa del pecho fatigando los brazos y la espalda baja.',
     ),
+    Exercise(
+      name: 'Sentadilla Isométrica en Pared (Wall Sit)',
+      muscleGroup: 'Cuádriceps',
+      secondaryMuscles: 'Glúteos, Isquiotibiales, Core (Tensión Isométrica)',
+      equipment: 'Peso Corporal',
+      movementPattern: 'isometric_squat',
+      difficulty: 'Principiante',
+      instructions:
+          '1. Apoya toda la espalda y la cabeza contra una pared firme.\n'
+          '2. Deslízate hacia abajo y adelanta los pies hasta que las caderas y las rodillas formen un ángulo exacto de 90° (muslos paralelos al suelo).\n'
+          '3. Mantén las manos a los costados o cruzadas en el pecho (sin apoyarte en los muslos) y sostén la contracción isométrica durante el tiempo objetivo.',
+      commonMistakes:
+          'Empujar los muslos con las manos quitando carga a los cuádriceps o dejar que las rodillas sobrepasen en exceso la punta de los pies.',
+      externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/06/Wall-Sit.gif',
+    ),
+    Exercise(
+      name: 'Sentadillas con Empuje (Thrusters con Mancuernas o Barra)',
+      muscleGroup: 'Cuádriceps',
+      secondaryMuscles: 'Hombros (Deltoides), Tríceps, Glúteos, Core',
+      equipment: 'Mancuernas',
+      movementPattern: 'thruster',
+      difficulty: 'Intermedio',
+      instructions:
+          '1. Sostén las mancuernas o la barra a la altura de los hombros (posición de rack frontal) con los codos hacia adelante.\n'
+          '2. Realiza una sentadilla profunda manteniendo el torso erguido y el abdomen firme.\n'
+          '3. Sube de forma potente extendiendo rodillas y caderas y aprovecha ese mismo impulso para empujar el peso verticalmente sobre la cabeza en un solo movimiento fluido.\n'
+          '4. Baja el peso a los hombros controladamente mientras encadenas la siguiente sentadilla.',
+      commonMistakes:
+          'Separar la sentadilla y el press militar en dos movimientos desconectados perdiendo la transferencia de potencia de las piernas.',
+      externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/02/Dumbbell-Thruster.gif',
+    ),
 
     // =========================================================================
     // 5. PIERNA - ISQUIOTIBIALES Y GLÚTEOS (HAMSTRINGS & GLUTES)
@@ -724,19 +755,35 @@ class ExerciseCatalogSeed {
       externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/02/Barbell-Hip-Thrust.gif',
     ),
     Exercise(
-      name: 'Curl Femoral Tumbado en Máquina (Lying Leg Curl)',
+      name: 'Camilla de Isquios / Curl Femoral Tumbado (Lying Leg Curl)',
       muscleGroup: 'Isquios y Glúteos',
       secondaryMuscles: 'Bíceps Femoral, Semitendinoso, Semimembranoso, Gemelos',
       equipment: 'Máquina',
-      movementPattern: 'leg_curl',
+      movementPattern: 'lying_leg_curl',
       difficulty: 'Principiante',
       instructions:
-          '1. Túmbate boca abajo en la máquina alineando las rodillas con el eje y el rodillo sobre el tendón de Aquiles.\n'
-          '2. Presiona la pelvis contra el banco en todo momento.\n'
-          '3. Flexiona las piernas llevando el rodillo hacia los glúteos y baja en 2-3 segundos.',
+          '1. Acuéstate boca abajo en la camilla de isquios alineando las rodillas justo en el borde del tapizado con el eje de la máquina y coloca el rodillo sobre el tendón de Aquiles.\n'
+          '2. Sujeta los agarres delanteros y mantén la pelvis presionada contra la camilla en todo momento.\n'
+          '3. Flexiona las rodillas llevando el rodillo hacia los glúteos, aprieta 1 segundo arriba y baja controlado en 2-3 segundos.',
       commonMistakes:
-          'Levantar la cadera del banco al subir el peso quitando tensión a los isquiotibiales.',
+          'Levantar la cadera de la camilla al subir el peso quitando tensión a los isquiotibiales y sobrecargando la zona lumbar.',
       externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/02/Lying-Leg-Curl.gif',
+    ),
+    Exercise(
+      name: 'Swing con Pesa Rusa o Mancuerna (Kettlebell Swing)',
+      muscleGroup: 'Isquios y Glúteos',
+      secondaryMuscles: 'Glúteo Mayor, Isquiotibiales, Erectores Espinales, Deltoides, Core',
+      equipment: 'Kettlebell / Disco',
+      movementPattern: 'kettlebell_swing',
+      difficulty: 'Intermedio',
+      instructions:
+          '1. De pie con los pies algo más anchos que los hombros, toma la kettlebell o mancuerna con ambas manos.\n'
+          '2. Realiza una bisagra de cadera llevando los glúteos hacia atrás (sin bajar en sentadilla) y pasa la pesa entre los muslos con la espalda totalmente recta.\n'
+          '3. Extiende la cadera de forma explosiva apretando fuerte los glúteos y el abdomen; el impulso de la cadera proyectará la pesa hasta la altura del pecho con los brazos relajados.\n'
+          '4. Deja que la pesa vuelva a bajar en péndulo y encadena la siguiente bisagra cuando tus antebrazos toquen la pelvis.',
+      commonMistakes:
+          'Hacer una sentadilla en lugar de una bisagra de cadera, o levantar la pesa haciendo fuerza con los hombros en vez de impulsarla con los glúteos.',
+      externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/02/Kettlebell-Swing.gif',
     ),
     Exercise(
       name: 'Curl Femoral Sentado en Máquina (Seated Leg Curl)',
@@ -1031,18 +1078,18 @@ class ExerciseCatalogSeed {
       externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/02/Hanging-Leg-Raises.gif',
     ),
     Exercise(
-      name: 'Plancha Abdominal Isométrica (Plank) / Rueda Abdominal',
+      name: 'Plancha Isométrica (Plank Abdominal)',
       muscleGroup: 'Abdomen y Core',
-      secondaryMuscles: 'Transverso Abdominal, Recto Abdominal, Glúteos, Serrato',
+      secondaryMuscles: 'Transverso Abdominal, Recto Abdominal, Glúteos, Serrato Anterior',
       equipment: 'Peso Corporal',
       movementPattern: 'plank',
       difficulty: 'Principiante',
       instructions:
-          '1. Apoya los antebrazos y las puntas de los pies en el suelo con los codos bajo los hombros.\n'
-          '2. Alinea cabeza, espalda y talones contrayendo con fuerza glúteos y abdomen (retroversión pélvica).\n'
-          '3. Mantén la tensión activa respirando de forma controlada.',
+          '1. Apoya los antebrazos y las puntas de los pies en el suelo con los codos alineados exactamente debajo de los hombros.\n'
+          '2. Forma una línea recta desde la cabeza hasta los talones contrayendo con máxima fuerza los glúteos y el abdomen (retroversión pélvica).\n'
+          '3. Mantén la postura isométrica sin mover la cadera mientras respiras de manera constante.',
       commonMistakes:
-          'Hundir la zona lumbar generando dolor de espalda.',
+          'Dejar caer la zona lumbar arqueando la espalda o subir los glúteos formando una carpa.',
       externalMediaUrl: 'https://fitnessprogramer.com/wp-content/uploads/2021/02/plank.gif',
     ),
 
