@@ -22,6 +22,7 @@ class ProgressHistoryScreen extends StatefulWidget {
 class _ProgressHistoryScreenState extends State<ProgressHistoryScreen> {
   List<WorkoutSession> _sessions = [];
   List<Exercise> _exercises = [];
+  Map<int, int> _sessionCountByExerciseId = {};
   Exercise? _selectedExercise;
   List<Map<String, dynamic>> _chartData = [];
   bool _loading = true;
@@ -35,17 +36,52 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen> {
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
-    final sessions = await DatabaseService.instance.getWorkoutSessions();
-    final exercises = await DatabaseService.instance.getAllExercises();
+    final sessions =
+        await DatabaseService.instance.getWorkoutSessions(limit: 200);
+    final allExercises = await DatabaseService.instance.getAllExercises();
+    final Map<int, Exercise> exerciseById = {
+      for (final e in allExercises)
+        if (e.id != null) e.id!: e,
+    };
 
-    // Elegir por defecto el primer ejercicio que tenga registros o el primero de la lista
-    Exercise? defaultEx = exercises.isNotEmpty ? exercises.first : null;
-    if (sessions.isNotEmpty && sessions.first.setLogs.isNotEmpty) {
-      final lastExId = sessions.first.setLogs.first.exerciseId;
-      defaultEx = exercises.firstWhere(
-        (e) => e.id == lastExId,
-        orElse: () => exercises.first,
-      );
+    // Filtrar únicamente los ejercicios que el usuario realmente realizó en su historial/rutinas
+    final List<int> performedOrderIds = [];
+    final Map<int, int> sessionCounts = {};
+
+    for (final session in sessions) {
+      final Set<int> seenInSession = {};
+      for (final log in session.setLogs) {
+        if (!log.isCompleted) continue;
+        final exId = log.exerciseId;
+        if (!performedOrderIds.contains(exId)) {
+          performedOrderIds.add(exId);
+        }
+        seenInSession.add(exId);
+      }
+      for (final exId in seenInSession) {
+        sessionCounts[exId] = (sessionCounts[exId] ?? 0) + 1;
+      }
+    }
+
+    final List<Exercise> performedExercises = [];
+    for (final exId in performedOrderIds) {
+      final ex = exerciseById[exId];
+      if (ex != null) {
+        performedExercises.add(ex);
+      }
+    }
+
+    // Mantener el ejercicio seleccionado si sigue estando entre los realizados, o elegir el más reciente
+    Exercise? defaultEx;
+    if (performedExercises.isNotEmpty) {
+      if (_selectedExercise?.id != null) {
+        defaultEx = performedExercises.firstWhere(
+          (e) => e.id == _selectedExercise!.id,
+          orElse: () => performedExercises.first,
+        );
+      } else {
+        defaultEx = performedExercises.first;
+      }
     }
 
     List<Map<String, dynamic>> history = [];
@@ -57,7 +93,8 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen> {
     if (mounted) {
       setState(() {
         _sessions = sessions;
-        _exercises = exercises;
+        _exercises = performedExercises;
+        _sessionCountByExerciseId = sessionCounts;
         _selectedExercise = defaultEx;
         _chartData = history;
         _loading = false;
@@ -156,28 +193,7 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen> {
                           ],
                         ),
                         const SizedBox(height: 14),
-                        DropdownButtonFormField<Exercise>(
-                          value: _selectedExercise,
-                          isExpanded: true,
-                          dropdownColor: const Color(0xFF1E293B),
-                          decoration: const InputDecoration(
-                            labelText:
-                                'Selecciona un Ejercicio para ver tu curva de fuerza',
-                            prefixIcon: Icon(Icons.fitness_center),
-                          ),
-                          items: _exercises.map((e) {
-                            return DropdownMenuItem(
-                              value: e,
-                              child: Text(
-                                '${e.name} (${e.equipment})',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: _onExerciseChanged,
-                        ),
-                        const SizedBox(height: 18),
-                        if (_chartData.isEmpty)
+                        if (_exercises.isEmpty)
                           Container(
                             height: 170,
                             alignment: Alignment.center,
@@ -188,8 +204,8 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen> {
                             ),
                             padding: const EdgeInsets.all(16),
                             child: Text(
-                              'Aún no hay sesiones registradas para "${_selectedExercise?.name ?? ''}".\n'
-                              'Completa un día de tu rutina y anota tus pesos para ver el gráfico de evolución aquí.',
+                              'Todavía no hay ejercicios realizados en el historial de ${widget.username}.\n'
+                              'Completa un día de tu rutina y registra tus pesos: aquí solo aparecerán los ejercicios que hayas realizado.',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 color: Colors.white54,
@@ -198,20 +214,47 @@ class _ProgressHistoryScreenState extends State<ProgressHistoryScreen> {
                             ),
                           )
                         else ...[
-                          SizedBox(
-                            height: 210,
-                            width: double.infinity,
-                            child: CustomPaint(
-                              painter: _WeightProgressChartPainter(
-                                data: _chartData,
-                                use1RM: _showEstimated1RM,
-                                unit: widget.weightUnit,
-                                formatShortDate: _formatShortDate,
+                          DropdownButtonFormField<Exercise>(
+                            value: _selectedExercise,
+                            isExpanded: true,
+                            dropdownColor: const Color(0xFF1E293B),
+                            decoration: InputDecoration(
+                              labelText:
+                                  'Ejercicios realizados por ${widget.username} (${_exercises.length})',
+                              prefixIcon: const Icon(Icons.fitness_center),
+                            ),
+                            items: _exercises.map((e) {
+                              final count =
+                                  _sessionCountByExerciseId[e.id ?? -1] ?? 1;
+                              final countLabel =
+                                  count == 1 ? '1 sesión' : '$count sesiones';
+                              return DropdownMenuItem(
+                                value: e,
+                                child: Text(
+                                  '${e.name} (${e.equipment}) • $countLabel',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: _onExerciseChanged,
+                          ),
+                          const SizedBox(height: 18),
+                          if (_chartData.isNotEmpty) ...[
+                            SizedBox(
+                              height: 210,
+                              width: double.infinity,
+                              child: CustomPaint(
+                                painter: _WeightProgressChartPainter(
+                                  data: _chartData,
+                                  use1RM: _showEstimated1RM,
+                                  unit: widget.weightUnit,
+                                  formatShortDate: _formatShortDate,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          _buildStatsSummaryRow(),
+                            const SizedBox(height: 12),
+                            _buildStatsSummaryRow(),
+                          ],
                         ],
                       ],
                     ),
