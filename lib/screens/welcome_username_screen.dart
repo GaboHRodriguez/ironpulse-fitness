@@ -13,7 +13,22 @@ class WelcomeUsernameScreen extends StatefulWidget {
 class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
   final TextEditingController _nameCtrl = TextEditingController();
   String _weightUnit = 'kg';
+  String _gender = 'male'; // 'male' = Varón, 'female' = Mujer
   bool _saving = false;
+  List<UserProfile> _existingUsers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingUsers();
+  }
+
+  Future<void> _loadExistingUsers() async {
+    final users = await DatabaseService.instance.getAllUsers();
+    if (mounted) {
+      setState(() => _existingUsers = users);
+    }
+  }
 
   @override
   void dispose() {
@@ -21,12 +36,27 @@ class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
     super.dispose();
   }
 
+  Future<void> _selectExistingUser(UserProfile user) async {
+    if (user.id == null) return;
+    setState(() => _saving = true);
+    final active = await DatabaseService.instance.switchActiveUser(user.id!);
+    if (mounted && active != null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomeShellScreen(initialProfile: active),
+        ),
+      );
+    }
+  }
+
   Future<void> _continueToApp() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Por favor, escribe tu nombre o apodo para comenzar.'),
+          content: Text(
+              'Por favor, escribe el nombre o alias del alumno/usuario para comenzar.'),
         ),
       );
       return;
@@ -34,7 +64,7 @@ class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
 
     setState(() => _saving = true);
     final UserProfile profile = await DatabaseService.instance
-        .saveOrUpdateUserProfile(name, weightUnit: _weightUnit);
+        .createOrSelectUser(name, weightUnit: _weightUnit, gender: _gender);
 
     if (mounted) {
       Navigator.pushReplacement(
@@ -53,7 +83,7 @@ class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
+            constraints: const BoxConstraints(maxWidth: 460),
             child: Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(24),
@@ -91,7 +121,7 @@ class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Asistente Inteligente de Entrenamiento de Musculación.\nSin cuentas ni contraseñas: ingresa solo tu nombre para interactuar contigo.',
+                      'Modo Multi-Usuario / Entrenador y Alumnos.\nSin contraseñas ni cuentas: identifica a cada alumno solo con su nombre o alias para gestionar sus rutinas y pesos por separado.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white70,
@@ -99,18 +129,90 @@ class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
                         height: 1.45,
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    if (_existingUsers.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Seleccionar Alumno / Usuario registrado:',
+                          style: TextStyle(
+                            color: Color(0xFF00E5FF),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _existingUsers.map((u) {
+                          return ActionChip(
+                            avatar: Icon(
+                              u.isFemale
+                                  ? Icons.female_rounded
+                                  : Icons.male_rounded,
+                              size: 16,
+                              color: u.isFemale
+                                  ? const Color(0xFF00E5FF)
+                                  : const Color(0xFFCCFF00),
+                            ),
+                            label: Text(
+                              '${u.username} (${u.genderLabel} • ${u.weightUnit})',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            onPressed:
+                                _saving ? null : () => _selectExistingUser(u),
+                          );
+                        }).toList(),
+                      ),
+                      const Divider(height: 28),
+                    ] else
+                      const SizedBox(height: 24),
                     TextField(
                       controller: _nameCtrl,
                       textCapitalization: TextCapitalization.words,
                       onSubmitted: (_) => _continueToApp(),
                       decoration: const InputDecoration(
-                        labelText: '¿Cómo te llamas?',
-                        hintText: 'Ej: Gabriel, Alex...',
-                        prefixIcon: Icon(Icons.person_outline_rounded),
+                        labelText: 'Nombre o Alias del Alumno / Usuario',
+                        hintText: 'Ej: Gabriel, Martín, Lucía...',
+                        prefixIcon: Icon(Icons.person_add_alt_1_rounded),
                       ),
                     ),
                     const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Sexo (Maniquí 3D):',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(
+                              value: 'male',
+                              icon: Icon(Icons.male_rounded, size: 18),
+                              label: Text('Varón'),
+                            ),
+                            ButtonSegment(
+                              value: 'female',
+                              icon: Icon(Icons.female_rounded, size: 18),
+                              label: Text('Mujer'),
+                            ),
+                          ],
+                          selected: {_gender},
+                          onSelectionChanged: (s) {
+                            setState(() => _gender = s.first);
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -141,7 +243,7 @@ class _WelcomeUsernameScreenState extends State<WelcomeUsernameScreen> {
                         onPressed: _saving ? null : _continueToApp,
                         icon: const Icon(Icons.bolt_rounded),
                         label: const Text(
-                          'COMENZAR ENTRENAMIENTO',
+                          'INGRESAR / CREAR ALUMNO',
                           style: TextStyle(
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.6,

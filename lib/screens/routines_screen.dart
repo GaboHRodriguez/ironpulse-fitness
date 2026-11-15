@@ -180,6 +180,187 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
     );
   }
 
+  Future<void> _showCopyRoutineToStudentDialog(Routine routine) async {
+    final allUsers = await DatabaseService.instance.getAllUsers();
+    final otherUsers = allUsers
+        .where((u) => u.username.toLowerCase() != widget.username.toLowerCase())
+        .toList();
+
+    final newStudentCtrl = TextEditingController();
+    String newStudentUnit = widget.weightUnit;
+    String newStudentGender = 'male';
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF161D2B),
+          title: Text('Asignar "${routine.name}" a otro Alumno'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (otherUsers.isNotEmpty) ...[
+                  const Text(
+                    'Selecciona un alumno registrado para copiarle esta rutina:',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  ...otherUsers.map((u) {
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          u.isFemale ? Icons.female_rounded : Icons.male_rounded,
+                          color: const Color(0xFFCCFF00),
+                        ),
+                        title: Text(
+                          '${u.username} (${u.genderLabel} · ${u.weightUnit})',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        trailing: FilledButton.tonal(
+                          onPressed: () async {
+                            if (u.id == null) return;
+                            await DatabaseService.instance
+                                .copyRoutineToUser(routine, u.id!);
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Rutina "${routine.name}" copiada al alumno ${u.username}.',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: const Text('Asignar'),
+                        ),
+                      ),
+                    );
+                  }),
+                  const Divider(height: 24),
+                ],
+                const Text(
+                  'O crea un nuevo alumno y asígnale esta rutina directamente:',
+                  style: TextStyle(
+                    color: Color(0xFF00E5FF),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: newStudentCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre o Alias del Nuevo Alumno',
+                    hintText: 'Ej: Lucas, Valeria...',
+                    prefixIcon: Icon(Icons.person_add_alt_1_rounded),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Sexo (Maniquí 3D):',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'male',
+                          icon: Icon(Icons.male_rounded, size: 16),
+                          label: Text('Varón'),
+                        ),
+                        ButtonSegment(
+                          value: 'female',
+                          icon: Icon(Icons.female_rounded, size: 16),
+                          label: Text('Mujer'),
+                        ),
+                      ],
+                      selected: {newStudentGender},
+                      onSelectionChanged: (s) {
+                        setDialogState(() => newStudentGender = s.first);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Unidad:',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'kg', label: Text('KG')),
+                        ButtonSegment(value: 'lb', label: Text('LB')),
+                      ],
+                      selected: {newStudentUnit},
+                      onSelectionChanged: (s) {
+                        setDialogState(() => newStudentUnit = s.first);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                final clean = newStudentCtrl.text.trim();
+                if (clean.isEmpty) return;
+                final currentUser =
+                    await DatabaseService.instance.getUserProfile();
+                final createdUser =
+                    await DatabaseService.instance.createOrSelectUser(
+                  clean,
+                  weightUnit: newStudentUnit,
+                  gender: newStudentGender,
+                );
+                if (createdUser.id != null) {
+                  await DatabaseService.instance
+                      .copyRoutineToUser(routine, createdUser.id!);
+                }
+                // Mantener activo al usuario original si existía
+                if (currentUser?.id != null) {
+                  await DatabaseService.instance
+                      .switchActiveUser(currentUser!.id!);
+                }
+                widget.onDataChanged();
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Alumno "$clean" creado con la rutina "${routine.name}" asignada.',
+                      ),
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              label: const Text('Crear Alumno y Asignar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _confirmDeleteRoutine(Routine routine) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -215,7 +396,7 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mis Rutinas Semanales'),
+        title: Text('Rutinas de ${widget.username}'),
         actions: [
           OutlinedButton.icon(
             onPressed: _showPresetTemplatesModal,
@@ -356,6 +537,14 @@ class _RoutinesScreenState extends State<RoutinesScreen> {
                                         size: 18),
                                     label: const Text('Activar'),
                                   ),
+                                IconButton(
+                                  tooltip: 'Asignar / Copiar a otro Alumno',
+                                  icon: const Icon(
+                                      Icons.group_add_outlined,
+                                      color: Color(0xFF00E5FF)),
+                                  onPressed: () =>
+                                      _showCopyRoutineToStudentDialog(routine),
+                                ),
                                 IconButton(
                                   tooltip: 'Modificar Rutina',
                                   icon: const Icon(Icons.edit_outlined,

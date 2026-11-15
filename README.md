@@ -6,9 +6,11 @@ Aplicación nativa multiplataforma desarrollada en **Flutter (Dart) + SQLite loc
 
 ## Características Principales Implementadas
 
-1. **Bienvenida e Interacción Personalizada Sin Registro**:
-   - Solicita únicamente tu nombre o apodo y unidad preferida (`kg` o `lb`) sin cuentas ni contraseñas.
-   - Saluda y responde de forma interactiva en cada pantalla (*Dashboard*, *Rutinas*, *Sesión de Entrenamiento* y *Récords*).
+1. **Modo Multi-Usuario / Entrenador y Alumnos (Sin Contraseñas + Sexo del Alumno)**:
+   - Permite que varios usuarios o un **entrenador con múltiples alumnos** compartan la aplicación identificándose únicamente con su **nombre o alias**, **sexo (`Varón` / `Mujer`)** y unidad preferida (`kg` o `lb`), sin contraseñas ni cuentas.
+   - **Cambio rápido en 1 toque** desde la barra superior o el panel de alumnos en la pantalla de inicio, adaptando automáticamente el **Maniquí 3D (Varón o Mujer)** según el alumno activo.
+   - Cada alumno mantiene de forma independiente sus **rutinas semanales**, su **historial de sesiones**, su **memoria inteligente de pesos por serie** y sus **récords personales (1RM)**.
+   - Incluye la función **"Asignar / Copiar Rutina a otro Alumno"** para que el entrenador pueda diseñar una rutina una sola vez y asignarla a cualquier alumno en 1 clic.
 
 2. **Gestor Completo de Rutinas Semanales (Crear, Modificar, Eliminar) + Plantillas Prearmadas**:
    - Configura de **1 a 7 días por semana**.
@@ -19,12 +21,12 @@ Aplicación nativa multiplataforma desarrollada en **Flutter (Dart) + SQLite loc
      - *Full Body (Cuerpo Completo - 3 Días)*
      - *División Clásica Culturista Weider (5 Días)*
 
-3. **Enciclopedia de Musculación + Sistema Dual de Animación Técnica**:
+3. **Enciclopedia de Musculación + Carrusel Interactivo con Maniquí 3D (Varón y Mujer) y Equipamiento Específico**:
    - Base de datos SQLite precargada con una amplia variedad de ejercicios clasificados por **Grupo Muscular** y por **Modalidad / Equipamiento**:
      - `Barra`, `Mancuernas`, `Polea / Cable`, `Máquina`, `Multipower / Smith`, `Barra EZ`, `Peso Corporal`, `Kettlebell / Disco`.
-   - **Animación Técnica Dual**:
-     1. **Motor Biomecánico Vectorial 100% Offline (`CustomPainter`)**: Muestra el movimiento articular en tiempo real, el equipamiento, los músculos activos iluminados, fase concéntrica/excéntrica y cámara lenta `0.5x`.
-     2. **Soporte de GIFs y Videos Externos**: Permite alternar a GIF demostrativo o abrir búsqueda de video técnico.
+   - **Carrusel Técnico Deslizable (`PageView` táctil y con mouse)**:
+     1. **Diapositiva 1 — Ejecución del Ejercicio por el Maniquí 3D**: El propio **Maniquí 3D articulado (Varón o Mujer)** realiza el ejercicio diferenciando visualmente el equipamiento específico: **Mancuernas comunes hexagonales**, **Mancuerna Búlgara / Kettlebell / Sentadilla Búlgara con apoyo elevado trasero**, **Barra Olímpica recta con rack**, **Barra EZ en zig-zag**, **Multipower / Smith con guías cromadas**, **Torre de Polea con placas móviles** y **Máquinas específicas (Prensa 45°, Sentadilla Hack, Pec Deck, Sillón de Cuádriceps y Camilla Femoral)**.
+     2. **Diapositiva 2 — Maniquí Anatómico Digital 3D (Varón y Mujer)**: Maniquí 3D estilo porcelana/marfil con acabado especular (con vistas **360° Dual Frontal/Espalda**, **Frontal** y **Posterior**) que ilumina en tiempo real el **músculo principal** y los **músculos sinergistas/secundarios** que trabaja cada ejercicio.
    - Permite además **crear nuevos ejercicios personalizados** en la base de datos.
 
 4. **Registro Diario de Pesos Serie por Serie con Memoria Inteligente**:

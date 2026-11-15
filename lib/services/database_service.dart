@@ -12,6 +12,10 @@ class DatabaseService {
   static Database? _database;
   static bool _usePrefsFallback = kIsWeb;
 
+  /// Sexo del alumno/usuario activo ('male' o 'female') para el maniquí 3D
+  String currentGender = 'male';
+  bool get isCurrentFemale => currentGender.toLowerCase() == 'female';
+
   DatabaseService._internal();
 
   Future<Database?> get database async {
@@ -41,14 +45,53 @@ class DatabaseService {
 
     final db = await openDatabase(
       dbPath,
-      version: 2,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: (db, oldV, newV) async {
+        await _ensureMultiUserSchema(db);
         await _syncCatalogExercises(db);
       },
     );
+    await _ensureMultiUserSchema(db);
     await _syncCatalogExercises(db);
     return db;
+  }
+
+  Future<void> _ensureMultiUserSchema(Database db) async {
+    Future<bool> hasColumn(String table, String column) async {
+      final info = await db.rawQuery('PRAGMA table_info($table)');
+      return info.any((row) =>
+          (row['name'] as String?)?.toLowerCase() == column.toLowerCase());
+    }
+
+    if (!await hasColumn('user_profile', 'is_active')) {
+      await db.execute(
+          'ALTER TABLE user_profile ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0');
+      final users = await db.query('user_profile', orderBy: 'id ASC', limit: 1);
+      if (users.isNotEmpty) {
+        await db.update(
+          'user_profile',
+          {'is_active': 1},
+          where: 'id = ?',
+          whereArgs: [users.first['id']],
+        );
+      }
+    }
+
+    if (!await hasColumn('user_profile', 'gender')) {
+      await db.execute(
+          "ALTER TABLE user_profile ADD COLUMN gender TEXT NOT NULL DEFAULT 'male'");
+    }
+
+    if (!await hasColumn('routines', 'user_id')) {
+      await db.execute(
+          'ALTER TABLE routines ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1');
+    }
+
+    if (!await hasColumn('workout_sessions', 'user_id')) {
+      await db.execute(
+          'ALTER TABLE workout_sessions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1');
+    }
   }
 
   Future<void> _syncCatalogExercises(Database db) async {
@@ -110,6 +153,8 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL,
         weight_unit TEXT NOT NULL DEFAULT 'kg',
+        gender TEXT NOT NULL DEFAULT 'male',
+        is_active INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       )
     ''');
@@ -133,6 +178,7 @@ class DatabaseService {
     await db.execute('''
       CREATE TABLE routines (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 1,
         name TEXT NOT NULL,
         days_per_week INTEGER NOT NULL,
         description TEXT,
@@ -168,6 +214,7 @@ class DatabaseService {
     await db.execute('''
       CREATE TABLE workout_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 1,
         routine_id INTEGER,
         routine_day_id INTEGER,
         routine_name TEXT NOT NULL,
@@ -254,61 +301,401 @@ class DatabaseService {
   }
 
   // ===========================================================================
-  // PERFIL DE USUARIO (Sin Registro de Contraseña - Interactivo)
+  // PERFILES MULTI-USUARIO / ALUMNOS (Sin Contraseñas - Identificación por Alias)
   // ===========================================================================
+  Future<List<UserProfile>> _getAllUsersFromPrefs(SharedPreferences prefs) async {
+    final rawList = prefs.getString('ip_users_list_v1');
+    if (rawList != null) {
+      final decoded = jsonDecode(rawList) as List<dynamic>;
+      final users = decoded
+          .map((e) => UserProfile.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      users.sort((a, b) {
+        final cmp = (b.isActive ? 1 : 0).compareTo(a.isActive ? 1 : 0);
+        return cmp != 0 ? cmp : a.username.toLowerCase().compareTo(b.username.toLowerCase());
+      });
+      return users;
+    }
+
+    // Migrar usuario único anterior si existía
+    final legacyRaw = prefs.getString('ip_user_profile_v1');
+    if (legacyRaw != null) {
+      final legacy = UserProfile.fromMap(jsonDecode(legacyRaw) as Map<String, dynamic>)
+          .copyWith(id: 1, isActive: true);
+      await _saveUsersListToPrefs(prefs, [legacy]);
+      return [legacy];
+    }
+    return [];
+  }
+
+  Future<void> _saveUsersListToPrefs(
+      SharedPreferences prefs, List<UserProfile> users) async {
+    await prefs.setString(
+      'ip_users_list_v1',
+      jsonEncode(users.map((u) => u.toMap()).toList()),
+    );
+    final active = users.where((u) => u.isActive).isNotEmpty
+        ? users.firstWhere((u) => u.isActive)
+        : (users.isNotEmpty ? users.first : null);
+    if (active != null) {
+      await prefs.setString('ip_user_profile_v1', jsonEncode(active.toMap()));
+    } else {
+      await prefs.remove('ip_user_profile_v1');
+    }
+  }
+
+  Future<List<UserProfile>> getAllUsers() async {
+    final db = await database;
+    if (db == null) {
+      final prefs = await _ensurePrefsSeeded();
+      return _getAllUsersFromPrefs(prefs);
+    }
+
+    final rows = await db.query(
+      'user_profile',
+      orderBy: 'is_active DESC, username COLLATE NOCASE ASC',
+    );
+    return rows.map((r) => UserProfile.fromMap(r)).toList();
+  }
+
   Future<UserProfile?> getUserProfile() async {
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final raw = prefs.getString('ip_user_profile_v1');
-      if (raw == null) return null;
-      return UserProfile.fromMap(jsonDecode(raw) as Map<String, dynamic>);
+      final users = await _getAllUsersFromPrefs(prefs);
+      if (users.isEmpty) return null;
+      final active =
+          users.firstWhere((u) => u.isActive, orElse: () => users.first);
+      currentGender = active.gender;
+      return active;
     }
 
-    final rows = await db.query('user_profile', limit: 1);
-    if (rows.isEmpty) return null;
-    return UserProfile.fromMap(rows.first);
+    final activeRows = await db.query(
+      'user_profile',
+      where: 'is_active = 1',
+      limit: 1,
+    );
+    if (activeRows.isNotEmpty) {
+      final active = UserProfile.fromMap(activeRows.first);
+      currentGender = active.gender;
+      return active;
+    }
+
+    final anyRows = await db.query('user_profile', orderBy: 'id ASC', limit: 1);
+    if (anyRows.isEmpty) return null;
+
+    final firstUser =
+        UserProfile.fromMap(anyRows.first).copyWith(isActive: true);
+    await db.update(
+      'user_profile',
+      {'is_active': 1},
+      where: 'id = ?',
+      whereArgs: [firstUser.id],
+    );
+    currentGender = firstUser.gender;
+    return firstUser;
   }
 
-  Future<UserProfile> saveOrUpdateUserProfile(String username,
-      {String weightUnit = 'kg'}) async {
+  Future<int> _resolveActiveUserId([int? explicitUserId]) async {
+    if (explicitUserId != null) return explicitUserId;
+    final profile = await getUserProfile();
+    return profile?.id ?? 1;
+  }
+
+  /// Crea un nuevo usuario/alumno (o si ya existe ese nombre/alias, lo activa).
+  Future<UserProfile> createOrSelectUser(
+    String username, {
+    String weightUnit = 'kg',
+    String gender = 'male',
+  }) async {
+    final cleanName = username.trim();
+    final now = DateTime.now().toIso8601String();
+    currentGender = gender;
+    final db = await database;
+
+    if (db == null) {
+      final prefs = await _ensurePrefsSeeded();
+      final users = await _getAllUsersFromPrefs(prefs);
+      final existingIdx = users.indexWhere(
+        (u) => u.username.toLowerCase() == cleanName.toLowerCase(),
+      );
+
+      if (existingIdx != -1) {
+        final targetId = users[existingIdx].id!;
+        final updatedList = users.map((u) {
+          if (u.id == targetId) {
+            return u.copyWith(
+              username: cleanName,
+              weightUnit: weightUnit,
+              gender: gender,
+              isActive: true,
+            );
+          }
+          return u.copyWith(isActive: false);
+        }).toList();
+        await _saveUsersListToPrefs(prefs, updatedList);
+        final res = updatedList.firstWhere((u) => u.id == targetId);
+        currentGender = res.gender;
+        return res;
+      }
+
+      final nextId = users.isEmpty
+          ? 1
+          : (users.map((u) => u.id ?? 0).reduce((a, b) => a > b ? a : b) + 1);
+      final newUser = UserProfile(
+        id: nextId,
+        username: cleanName,
+        weightUnit: weightUnit,
+        gender: gender,
+        isActive: true,
+        createdAt: now,
+      );
+      final nextList = [
+        ...users.map((u) => u.copyWith(isActive: false)),
+        newUser,
+      ];
+      await _saveUsersListToPrefs(prefs, nextList);
+      currentGender = newUser.gender;
+      return newUser;
+    }
+
+    return await db.transaction((txn) async {
+      final existing = await txn.query(
+        'user_profile',
+        where: 'LOWER(username) = ?',
+        whereArgs: [cleanName.toLowerCase()],
+        limit: 1,
+      );
+
+      await txn.update('user_profile', {'is_active': 0});
+
+      if (existing.isNotEmpty) {
+        final existingUser = UserProfile.fromMap(existing.first);
+        final updated = existingUser.copyWith(
+          username: cleanName,
+          weightUnit: weightUnit,
+          gender: gender,
+          isActive: true,
+        );
+        await txn.update(
+          'user_profile',
+          updated.toMap(),
+          where: 'id = ?',
+          whereArgs: [existingUser.id],
+        );
+        currentGender = updated.gender;
+        return updated;
+      }
+
+      final profile = UserProfile(
+        username: cleanName,
+        weightUnit: weightUnit,
+        gender: gender,
+        isActive: true,
+        createdAt: now,
+      );
+      final id = await txn.insert('user_profile', profile.toMap());
+      currentGender = profile.gender;
+      return profile.copyWith(id: id);
+    });
+  }
+
+  /// Actualiza el nombre/alias, unidad o sexo del usuario actualmente activo (o uno específico).
+  Future<UserProfile> saveOrUpdateUserProfile(
+    String username, {
+    String weightUnit = 'kg',
+    String? gender,
+    int? userId,
+  }) async {
+    final cleanName = username.trim();
     final db = await database;
     final now = DateTime.now().toIso8601String();
 
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final profile = UserProfile(
-        id: 1,
-        username: username.trim(),
-        weightUnit: weightUnit,
-        createdAt: now,
-      );
-      await prefs.setString('ip_user_profile_v1', jsonEncode(profile.toMap()));
-      return profile;
+      final users = await _getAllUsersFromPrefs(prefs);
+      final targetId = userId ??
+          (users.where((u) => u.isActive).isNotEmpty
+              ? users.firstWhere((u) => u.isActive).id
+              : null);
+
+      if (targetId == null) {
+        return createOrSelectUser(
+          cleanName,
+          weightUnit: weightUnit,
+          gender: gender ?? 'male',
+        );
+      }
+
+      UserProfile? updatedProfile;
+      final nextList = users.map((u) {
+        if (u.id == targetId) {
+          updatedProfile = u.copyWith(
+            username: cleanName,
+            weightUnit: weightUnit,
+            gender: gender ?? u.gender,
+            isActive: true,
+          );
+          return updatedProfile!;
+        }
+        return u.copyWith(isActive: false);
+      }).toList();
+
+      if (updatedProfile == null) {
+        return createOrSelectUser(
+          cleanName,
+          weightUnit: weightUnit,
+          gender: gender ?? 'male',
+        );
+      }
+      await _saveUsersListToPrefs(prefs, nextList);
+      currentGender = updatedProfile!.gender;
+      return updatedProfile!;
     }
 
-    final existing = await getUserProfile();
+    final existing = userId != null
+        ? (await db.query('user_profile', where: 'id = ?', whereArgs: [userId]))
+            .map((r) => UserProfile.fromMap(r))
+            .firstOrNull
+        : await getUserProfile();
+
     if (existing == null) {
-      final profile = UserProfile(
-        username: username.trim(),
+      return createOrSelectUser(
+        cleanName,
         weightUnit: weightUnit,
-        createdAt: now,
+        gender: gender ?? 'male',
       );
-      final id = await db.insert('user_profile', profile.toMap());
-      return profile.copyWith(id: id);
     } else {
       final updated = existing.copyWith(
-        username: username.trim(),
+        username: cleanName,
         weightUnit: weightUnit,
+        gender: gender ?? existing.gender,
+        isActive: true,
+        createdAt: existing.createdAt.isEmpty ? now : existing.createdAt,
       );
-      await db.update(
-        'user_profile',
-        updated.toMap(),
-        where: 'id = ?',
-        whereArgs: [existing.id],
-      );
+      await db.transaction((txn) async {
+        await txn.update('user_profile', {'is_active': 0});
+        await txn.update(
+          'user_profile',
+          updated.toMap(),
+          where: 'id = ?',
+          whereArgs: [existing.id],
+        );
+      });
+      currentGender = updated.gender;
       return updated;
     }
+  }
+
+  /// Cambia rápidamente el usuario/alumno activo sin pedir contraseña.
+  Future<UserProfile?> switchActiveUser(int userId) async {
+    final db = await database;
+    if (db == null) {
+      final prefs = await _ensurePrefsSeeded();
+      final users = await _getAllUsersFromPrefs(prefs);
+      UserProfile? active;
+      final updated = users.map((u) {
+        final isTarget = u.id == userId;
+        final copy = u.copyWith(isActive: isTarget);
+        if (isTarget) active = copy;
+        return copy;
+      }).toList();
+      await _saveUsersListToPrefs(prefs, updated);
+      if (active != null) currentGender = active!.gender;
+      return active;
+    }
+
+    await db.transaction((txn) async {
+      await txn.update('user_profile', {'is_active': 0});
+      await txn.update(
+        'user_profile',
+        {'is_active': 1},
+        where: 'id = ?',
+        whereArgs: [userId],
+      );
+    });
+    return getUserProfile();
+  }
+
+  /// Elimina un usuario/alumno junto con sus rutinas y sesiones, y devuelve el nuevo usuario activo (o null).
+  Future<UserProfile?> deleteUserProfile(int userId) async {
+    final db = await database;
+    if (db == null) {
+      final prefs = await _ensurePrefsSeeded();
+      final users = await _getAllUsersFromPrefs(prefs);
+      users.removeWhere((u) => u.id == userId);
+      if (users.isNotEmpty && !users.any((u) => u.isActive)) {
+        users[0] = users[0].copyWith(isActive: true);
+      }
+      await _saveUsersListToPrefs(prefs, users);
+
+      // Limpiar rutinas y sesiones de este usuario en prefs
+      final allRoutines = await _getAllRoutinesUnfilteredFromPrefs(prefs);
+      allRoutines.removeWhere((r) => (r.userId ?? 1) == userId);
+      await _persistRoutinesToPrefs(prefs, allRoutines);
+
+      final allSessions = await _getAllSessionsUnfilteredFromPrefs(prefs);
+      allSessions.removeWhere((s) => (s.userId ?? 1) == userId);
+      await _persistSessionsToPrefs(prefs, allSessions);
+
+      return users.isEmpty ? null : users.firstWhere((u) => u.isActive);
+    }
+
+    await db.transaction((txn) async {
+      final userRoutines = await txn.query(
+        'routines',
+        columns: ['id'],
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+      for (final r in userRoutines) {
+        final rId = r['id'] as int;
+        final oldDays = await txn.query(
+          'routine_days',
+          columns: ['id'],
+          where: 'routine_id = ?',
+          whereArgs: [rId],
+        );
+        for (final od in oldDays) {
+          await txn.delete(
+            'routine_exercises',
+            where: 'routine_day_id = ?',
+            whereArgs: [od['id']],
+          );
+        }
+        await txn.delete('routine_days', where: 'routine_id = ?', whereArgs: [rId]);
+      }
+      await txn.delete('routines', where: 'user_id = ?', whereArgs: [userId]);
+
+      final userSessions = await txn.query(
+        'workout_sessions',
+        columns: ['id'],
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+      for (final s in userSessions) {
+        await txn.delete(
+          'workout_set_logs',
+          where: 'session_id = ?',
+          whereArgs: [s['id']],
+        );
+      }
+      await txn.delete('workout_sessions', where: 'user_id = ?', whereArgs: [userId]);
+      await txn.delete('user_profile', where: 'id = ?', whereArgs: [userId]);
+
+      final remaining = await txn.query('user_profile', orderBy: 'id ASC');
+      if (remaining.isNotEmpty &&
+          !remaining.any((r) => (r['is_active'] as int? ?? 0) == 1)) {
+        await txn.update(
+          'user_profile',
+          {'is_active': 1},
+          where: 'id = ?',
+          whereArgs: [remaining.first['id']],
+        );
+      }
+    });
+
+    return getUserProfile();
   }
 
   // ===========================================================================
@@ -406,9 +793,42 @@ class DatabaseService {
   }
 
   // ===========================================================================
-  // RUTINAS SEMANALES (Crear, Modificar, Eliminar y Plantillas)
+  // RUTINAS SEMANALES POR USUARIO / ALUMNO (Crear, Modificar, Copiar, Plantillas)
   // ===========================================================================
-  Future<List<Routine>> getAllRoutines() async {
+  Future<List<Routine>> _getAllRoutinesUnfilteredFromPrefs(
+      SharedPreferences prefs) async {
+    final allExercises = await getAllExercises();
+    final Map<int, Exercise> exerciseMap = {
+      for (final e in allExercises)
+        if (e.id != null) e.id!: e,
+    };
+
+    final raw = prefs.getString('ip_routines_v1') ?? '[]';
+    final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
+    final List<Routine> routines = [];
+
+    for (final rJson in decoded) {
+      final rMap = Map<String, dynamic>.from(rJson as Map);
+      final rawDays = (rMap['days'] as List<dynamic>?) ?? [];
+      final List<RoutineDay> days = [];
+
+      for (final dJson in rawDays) {
+        final dMap = Map<String, dynamic>.from(dJson as Map);
+        final rawItems = (dMap['exercises'] as List<dynamic>?) ?? [];
+        final items = rawItems.map((iJson) {
+          final iMap = Map<String, dynamic>.from(iJson as Map);
+          final exId = iMap['exercise_id'] as int;
+          return RoutineExerciseItem.fromMap(iMap, exercise: exerciseMap[exId]);
+        }).toList();
+        days.add(RoutineDay.fromMap(dMap, exercises: items));
+      }
+      routines.add(Routine.fromMap(rMap, days: days));
+    }
+    return routines;
+  }
+
+  Future<List<Routine>> getAllRoutines({int? userId}) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final db = await database;
     final allExercises = await getAllExercises();
     final Map<int, Exercise> exerciseMap = {
@@ -418,34 +838,19 @@ class DatabaseService {
 
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final raw = prefs.getString('ip_routines_v1') ?? '[]';
-      final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
-      final List<Routine> routines = [];
-
-      for (final rJson in decoded) {
-        final rMap = Map<String, dynamic>.from(rJson as Map);
-        final rawDays = (rMap['days'] as List<dynamic>?) ?? [];
-        final List<RoutineDay> days = [];
-
-        for (final dJson in rawDays) {
-          final dMap = Map<String, dynamic>.from(dJson as Map);
-          final rawItems = (dMap['exercises'] as List<dynamic>?) ?? [];
-          final items = rawItems.map((iJson) {
-            final iMap = Map<String, dynamic>.from(iJson as Map);
-            final exId = iMap['exercise_id'] as int;
-            return RoutineExerciseItem.fromMap(iMap,
-                exercise: exerciseMap[exId]);
-          }).toList();
-          days.add(RoutineDay.fromMap(dMap, exercises: items));
-        }
-        routines.add(Routine.fromMap(rMap, days: days));
-      }
+      final all = await _getAllRoutinesUnfilteredFromPrefs(prefs);
+      final routines =
+          all.where((r) => (r.userId ?? 1) == activeUserId).toList();
       routines.sort((a, b) => (b.isActive ? 1 : 0).compareTo(a.isActive ? 1 : 0));
       return routines;
     }
 
-    final routineRows =
-        await db.query('routines', orderBy: 'is_active DESC, id DESC');
+    final routineRows = await db.query(
+      'routines',
+      where: 'user_id = ? OR (user_id IS NULL AND ? = 1)',
+      whereArgs: [activeUserId, activeUserId],
+      orderBy: 'is_active DESC, id DESC',
+    );
 
     final List<Routine> routines = [];
     for (final rMap in routineRows) {
@@ -480,19 +885,23 @@ class DatabaseService {
     return routines;
   }
 
-  Future<Routine> saveRoutine(Routine routine) async {
+  Future<Routine> saveRoutine(Routine routine, {int? userId}) async {
+    final activeUserId = await _resolveActiveUserId(userId ?? routine.userId);
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final existing = await getAllRoutines();
-      final bool makeActive = routine.isActive || existing.isEmpty;
+      final allRoutines = await _getAllRoutinesUnfilteredFromPrefs(prefs);
+      final userRoutines =
+          allRoutines.where((r) => (r.userId ?? 1) == activeUserId).toList();
+      final bool makeActive = routine.isActive || userRoutines.isEmpty;
       final int routineId = routine.id ??
-          (existing.isEmpty
+          (allRoutines.isEmpty
               ? 1
-              : existing.map((e) => e.id ?? 0).reduce((a, b) => a > b ? a : b) + 1);
+              : allRoutines.map((e) => e.id ?? 0).reduce((a, b) => a > b ? a : b) + 1);
 
       final updatedRoutine = routine.copyWith(
         id: routineId,
+        userId: activeUserId,
         daysPerWeek: routine.days.length,
         isActive: makeActive,
         days: List.generate(routine.days.length, (i) {
@@ -506,12 +915,14 @@ class DatabaseService {
 
       final List<Routine> nextList = [];
       bool replaced = false;
-      for (final r in existing) {
+      for (final r in allRoutines) {
         if (r.id == routineId) {
           nextList.add(updatedRoutine);
           replaced = true;
-        } else {
+        } else if ((r.userId ?? 1) == activeUserId) {
           nextList.add(makeActive ? r.copyWith(isActive: false) : r);
+        } else {
+          nextList.add(r);
         }
       }
       if (!replaced) nextList.add(updatedRoutine);
@@ -521,18 +932,26 @@ class DatabaseService {
     }
 
     return await db.transaction((txn) async {
-      final existingCountSq =
-          await txn.rawQuery('SELECT COUNT(*) as c FROM routines');
+      final existingCountSq = await txn.rawQuery(
+        'SELECT COUNT(*) as c FROM routines WHERE user_id = ?',
+        [activeUserId],
+      );
       final int existingCount = (existingCountSq.first['c'] as int?) ?? 0;
       final bool makeActive = routine.isActive || existingCount == 0;
 
       if (makeActive) {
-        await txn.update('routines', {'is_active': 0});
+        await txn.update(
+          'routines',
+          {'is_active': 0},
+          where: 'user_id = ?',
+          whereArgs: [activeUserId],
+        );
       }
 
       int routineId;
       if (routine.id == null) {
         routineId = await txn.insert('routines', {
+          'user_id': activeUserId,
           'name': routine.name,
           'days_per_week': routine.days.length,
           'description': routine.description,
@@ -544,6 +963,7 @@ class DatabaseService {
         await txn.update(
           'routines',
           {
+            'user_id': activeUserId,
             'name': routine.name,
             'days_per_week': routine.days.length,
             'description': routine.description,
@@ -591,8 +1011,45 @@ class DatabaseService {
         }
       }
 
-      return routine.copyWith(id: routineId, isActive: makeActive);
+      return routine.copyWith(
+        id: routineId,
+        userId: activeUserId,
+        isActive: makeActive,
+      );
     });
+  }
+
+  /// Permite al entrenador copiar/asignar una rutina existente a otro alumno en 1 clic.
+  Future<Routine> copyRoutineToUser(Routine sourceRoutine, int targetUserId) async {
+    final copied = Routine(
+      userId: targetUserId,
+      name: sourceRoutine.name,
+      daysPerWeek: sourceRoutine.days.length,
+      description: sourceRoutine.description,
+      isActive: true,
+      createdAt: DateTime.now().toIso8601String(),
+      days: sourceRoutine.days
+          .map(
+            (d) => RoutineDay(
+              dayNumber: d.dayNumber,
+              dayName: d.dayName,
+              exercises: d.exercises
+                  .map(
+                    (e) => RoutineExerciseItem(
+                      exerciseId: e.exerciseId,
+                      orderIndex: e.orderIndex,
+                      targetSets: e.targetSets,
+                      targetReps: e.targetReps,
+                      notes: e.notes,
+                      exercise: e.exercise,
+                    ),
+                  )
+                  .toList(),
+            ),
+          )
+          .toList(),
+    );
+    return saveRoutine(copied, userId: targetUserId);
   }
 
   Future<void> _persistRoutinesToPrefs(
@@ -609,19 +1066,29 @@ class DatabaseService {
     await prefs.setString('ip_routines_v1', jsonEncode(serialized));
   }
 
-  Future<void> setActiveRoutine(int routineId) async {
+  Future<void> setActiveRoutine(int routineId, {int? userId}) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final list = await getAllRoutines();
-      final updated =
-          list.map((r) => r.copyWith(isActive: r.id == routineId)).toList();
+      final list = await _getAllRoutinesUnfilteredFromPrefs(prefs);
+      final updated = list.map((r) {
+        if ((r.userId ?? 1) == activeUserId) {
+          return r.copyWith(isActive: r.id == routineId);
+        }
+        return r;
+      }).toList();
       await _persistRoutinesToPrefs(prefs, updated);
       return;
     }
 
     await db.transaction((txn) async {
-      await txn.update('routines', {'is_active': 0});
+      await txn.update(
+        'routines',
+        {'is_active': 0},
+        where: 'user_id = ?',
+        whereArgs: [activeUserId],
+      );
       await txn.update(
         'routines',
         {'is_active': 1},
@@ -635,7 +1102,7 @@ class DatabaseService {
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final list = await getAllRoutines();
+      final list = await _getAllRoutinesUnfilteredFromPrefs(prefs);
       list.removeWhere((r) => r.id == routineId);
       await _persistRoutinesToPrefs(prefs, list);
       return;
@@ -661,7 +1128,11 @@ class DatabaseService {
     });
   }
 
-  Future<Routine> importPresetTemplate(Map<String, dynamic> template) async {
+  Future<Routine> importPresetTemplate(
+    Map<String, dynamic> template, {
+    int? userId,
+  }) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final allExercises = await getAllExercises();
     final Map<String, Exercise> byName = {
       for (final e in allExercises) e.name.toLowerCase(): e,
@@ -710,6 +1181,7 @@ class DatabaseService {
     }
 
     final newRoutine = Routine(
+      userId: activeUserId,
       name: template['name'] as String,
       daysPerWeek: template['days_per_week'] as int,
       description: template['description'] as String,
@@ -718,17 +1190,20 @@ class DatabaseService {
       days: days,
     );
 
-    return await saveRoutine(newRoutine);
+    return await saveRoutine(newRoutine, userId: activeUserId);
   }
 
   // ===========================================================================
-  // HISTORIAL DE ENTRENAMIENTOS Y MEMORIA DE PESOS POR SERIE
+  // HISTORIAL DE ENTRENAMIENTOS Y MEMORIA DE PESOS POR SERIE (POR ALUMNO)
   // ===========================================================================
   Future<Map<int, WorkoutSetLog>> getLastSessionSetsForExercise(
-      int exerciseId) async {
+    int exerciseId, {
+    int? userId,
+  }) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final db = await database;
     if (db == null) {
-      final sessions = await getWorkoutSessions(limit: 200);
+      final sessions = await getWorkoutSessions(limit: 200, userId: activeUserId);
       for (final s in sessions) {
         final matching =
             s.setLogs.where((l) => l.exerciseId == exerciseId).toList();
@@ -740,12 +1215,14 @@ class DatabaseService {
     }
 
     final lastSessionRows = await db.rawQuery('''
-      SELECT session_id 
-      FROM workout_set_logs 
-      WHERE exercise_id = ? AND is_completed = 1
-      ORDER BY id DESC 
+      SELECT l.session_id 
+      FROM workout_set_logs l
+      INNER JOIN workout_sessions s ON l.session_id = s.id
+      WHERE l.exercise_id = ? AND l.is_completed = 1
+        AND (s.user_id = ? OR (s.user_id IS NULL AND ? = 1))
+      ORDER BY l.id DESC 
       LIMIT 1
-    ''', [exerciseId]);
+    ''', [exerciseId, activeUserId, activeUserId]);
 
     if (lastSessionRows.isEmpty) return {};
 
@@ -765,10 +1242,14 @@ class DatabaseService {
     return map;
   }
 
-  Future<WorkoutSetLog?> getPersonalRecordForExercise(int exerciseId) async {
+  Future<WorkoutSetLog?> getPersonalRecordForExercise(
+    int exerciseId, {
+    int? userId,
+  }) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final db = await database;
     if (db == null) {
-      final sessions = await getWorkoutSessions(limit: 200);
+      final sessions = await getWorkoutSessions(limit: 200, userId: activeUserId);
       WorkoutSetLog? best;
       for (final s in sessions) {
         for (final l in s.setLogs) {
@@ -782,22 +1263,41 @@ class DatabaseService {
       return best;
     }
 
-    final rows = await db.query(
-      'workout_set_logs',
-      where: 'exercise_id = ? AND is_completed = 1',
-      whereArgs: [exerciseId],
-      orderBy: 'weight DESC, reps DESC',
-      limit: 1,
-    );
+    final rows = await db.rawQuery('''
+      SELECT l.*
+      FROM workout_set_logs l
+      INNER JOIN workout_sessions s ON l.session_id = s.id
+      WHERE l.exercise_id = ? AND l.is_completed = 1
+        AND (s.user_id = ? OR (s.user_id IS NULL AND ? = 1))
+      ORDER BY l.weight DESC, l.reps DESC
+      LIMIT 1
+    ''', [exerciseId, activeUserId, activeUserId]);
     if (rows.isEmpty) return null;
     return WorkoutSetLog.fromMap(rows.first);
   }
 
-  Future<int> saveWorkoutSession(WorkoutSession session) async {
+  Future<List<WorkoutSession>> _getAllSessionsUnfilteredFromPrefs(
+      SharedPreferences prefs) async {
+    final raw = prefs.getString('ip_sessions_v1') ?? '[]';
+    final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
+    final List<WorkoutSession> list = [];
+    for (final sJson in decoded) {
+      final sMap = Map<String, dynamic>.from(sJson as Map);
+      final rawLogs = (sMap['set_logs'] as List<dynamic>?) ?? [];
+      final logs = rawLogs
+          .map((l) => WorkoutSetLog.fromMap(Map<String, dynamic>.from(l as Map)))
+          .toList();
+      list.add(WorkoutSession.fromMap(sMap, setLogs: logs));
+    }
+    return list;
+  }
+
+  Future<int> saveWorkoutSession(WorkoutSession session, {int? userId}) async {
+    final activeUserId = await _resolveActiveUserId(userId ?? session.userId);
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final existing = await getWorkoutSessions(limit: 500);
+      final existing = await _getAllSessionsUnfilteredFromPrefs(prefs);
       final int nextId = existing.isEmpty
           ? 1
           : (existing.map((e) => e.id ?? 0).reduce((a, b) => a > b ? a : b) + 1);
@@ -810,6 +1310,7 @@ class DatabaseService {
 
       final savedSession = WorkoutSession(
         id: nextId,
+        userId: activeUserId,
         routineId: session.routineId,
         routineDayId: session.routineDayId,
         routineName: session.routineName,
@@ -840,7 +1341,9 @@ class DatabaseService {
     }
 
     return await db.transaction((txn) async {
-      final sessionId = await txn.insert('workout_sessions', session.toMap());
+      final sessionMap = session.toMap();
+      sessionMap['user_id'] = activeUserId;
+      final sessionId = await txn.insert('workout_sessions', sessionMap);
       for (final log in session.setLogs) {
         await txn.insert('workout_set_logs', {
           'session_id': sessionId,
@@ -871,27 +1374,25 @@ class DatabaseService {
     await prefs.setString('ip_sessions_v1', jsonEncode(serialized));
   }
 
-  Future<List<WorkoutSession>> getWorkoutSessions({int limit = 50}) async {
+  Future<List<WorkoutSession>> getWorkoutSessions({
+    int limit = 50,
+    int? userId,
+  }) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final raw = prefs.getString('ip_sessions_v1') ?? '[]';
-      final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
-      final List<WorkoutSession> list = [];
-      for (final sJson in decoded.take(limit)) {
-        final sMap = Map<String, dynamic>.from(sJson as Map);
-        final rawLogs = (sMap['set_logs'] as List<dynamic>?) ?? [];
-        final logs = rawLogs
-            .map((l) =>
-                WorkoutSetLog.fromMap(Map<String, dynamic>.from(l as Map)))
-            .toList();
-        list.add(WorkoutSession.fromMap(sMap, setLogs: logs));
-      }
-      return list;
+      final all = await _getAllSessionsUnfilteredFromPrefs(prefs);
+      return all
+          .where((s) => (s.userId ?? 1) == activeUserId)
+          .take(limit)
+          .toList();
     }
 
     final sessionRows = await db.query(
       'workout_sessions',
+      where: 'user_id = ? OR (user_id IS NULL AND ? = 1)',
+      whereArgs: [activeUserId, activeUserId],
       orderBy: 'session_date DESC, id DESC',
       limit: limit,
     );
@@ -914,10 +1415,16 @@ class DatabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getExerciseProgressHistory(
-      int exerciseId) async {
+    int exerciseId, {
+    int? userId,
+  }) async {
+    final activeUserId = await _resolveActiveUserId(userId);
     final db = await database;
     if (db == null) {
-      final sessions = (await getWorkoutSessions(limit: 200)).reversed.toList();
+      final sessions =
+          (await getWorkoutSessions(limit: 200, userId: activeUserId))
+              .reversed
+              .toList();
       final List<Map<String, dynamic>> history = [];
 
       for (final s in sessions) {
@@ -953,9 +1460,10 @@ class DatabaseService {
       FROM workout_set_logs l
       INNER JOIN workout_sessions s ON l.session_id = s.id
       WHERE l.exercise_id = ? AND l.is_completed = 1
+        AND (s.user_id = ? OR (s.user_id IS NULL AND ? = 1))
       GROUP BY s.id
       ORDER BY s.session_date ASC, s.id ASC
-    ''', [exerciseId]);
+    ''', [exerciseId, activeUserId, activeUserId]);
 
     return rows;
   }
@@ -964,7 +1472,7 @@ class DatabaseService {
     final db = await database;
     if (db == null) {
       final prefs = await _ensurePrefsSeeded();
-      final list = await getWorkoutSessions(limit: 500);
+      final list = await _getAllSessionsUnfilteredFromPrefs(prefs);
       list.removeWhere((s) => s.id == sessionId);
       await _persistSessionsToPrefs(prefs, list);
       return;

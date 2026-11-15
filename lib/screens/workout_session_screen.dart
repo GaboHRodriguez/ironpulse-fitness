@@ -401,12 +401,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
                               ),
                             ),
 
-                            // Animación técnica desplegable dentro del entrenamiento
+                            // Animación técnica desplegable dentro del entrenamiento (Carrusel Ejercicio + Maniquí 3D)
                             if (tr.showAnimation) ...[
                               const SizedBox(height: 12),
                               ExerciseTechniqueAnimation(
                                 exercise: tr.exercise,
-                                height: 215,
+                                height: 255,
                               ),
                               const SizedBox(height: 8),
                               Text(

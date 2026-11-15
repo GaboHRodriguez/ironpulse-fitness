@@ -2,20 +2,29 @@ class UserProfile {
   final int? id;
   final String username;
   final String weightUnit; // 'kg' or 'lb'
+  final String gender; // 'male' ('Varón') or 'female' ('Mujer')
+  final bool isActive;
   final String createdAt;
 
   UserProfile({
     this.id,
     required this.username,
     this.weightUnit = 'kg',
+    this.gender = 'male',
+    this.isActive = false,
     required this.createdAt,
   });
+
+  bool get isFemale => gender.toLowerCase() == 'female';
+  String get genderLabel => isFemale ? 'Mujer' : 'Varón';
 
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
       'username': username,
       'weight_unit': weightUnit,
+      'gender': gender,
+      'is_active': isActive ? 1 : 0,
       'created_at': createdAt,
     };
   }
@@ -25,6 +34,8 @@ class UserProfile {
       id: map['id'] as int?,
       username: map['username'] as String,
       weightUnit: (map['weight_unit'] as String?) ?? 'kg',
+      gender: (map['gender'] as String?) ?? 'male',
+      isActive: (map['is_active'] as int? ?? 0) == 1,
       createdAt: (map['created_at'] as String?) ?? '',
     );
   }
@@ -33,12 +44,16 @@ class UserProfile {
     int? id,
     String? username,
     String? weightUnit,
+    String? gender,
+    bool? isActive,
     String? createdAt,
   }) {
     return UserProfile(
       id: id ?? this.id,
       username: username ?? this.username,
       weightUnit: weightUnit ?? this.weightUnit,
+      gender: gender ?? this.gender,
+      isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -134,6 +149,7 @@ class Exercise {
 
 class Routine {
   final int? id;
+  final int? userId;
   final String name;
   final int daysPerWeek;
   final String description;
@@ -143,6 +159,7 @@ class Routine {
 
   Routine({
     this.id,
+    this.userId,
     required this.name,
     required this.daysPerWeek,
     required this.description,
@@ -154,6 +171,7 @@ class Routine {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
       'name': name,
       'days_per_week': daysPerWeek,
       'description': description,
@@ -165,6 +183,7 @@ class Routine {
   factory Routine.fromMap(Map<String, dynamic> map, {List<RoutineDay> days = const []}) {
     return Routine(
       id: map['id'] as int?,
+      userId: map['user_id'] as int?,
       name: map['name'] as String,
       daysPerWeek: map['days_per_week'] as int,
       description: (map['description'] as String?) ?? '',
@@ -176,6 +195,7 @@ class Routine {
 
   Routine copyWith({
     int? id,
+    int? userId,
     String? name,
     int? daysPerWeek,
     String? description,
@@ -185,6 +205,7 @@ class Routine {
   }) {
     return Routine(
       id: id ?? this.id,
+      userId: userId ?? this.userId,
       name: name ?? this.name,
       daysPerWeek: daysPerWeek ?? this.daysPerWeek,
       description: description ?? this.description,
@@ -320,6 +341,7 @@ class RoutineExerciseItem {
 
 class WorkoutSession {
   final int? id;
+  final int? userId;
   final int? routineId;
   final int? routineDayId;
   final String routineName;
@@ -331,6 +353,7 @@ class WorkoutSession {
 
   WorkoutSession({
     this.id,
+    this.userId,
     this.routineId,
     this.routineDayId,
     required this.routineName,
@@ -344,6 +367,7 @@ class WorkoutSession {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
       'routine_id': routineId,
       'routine_day_id': routineDayId,
       'routine_name': routineName,
@@ -360,6 +384,7 @@ class WorkoutSession {
   }) {
     return WorkoutSession(
       id: map['id'] as int?,
+      userId: map['user_id'] as int?,
       routineId: map['routine_id'] as int?,
       routineDayId: map['routine_day_id'] as int?,
       routineName: (map['routine_name'] as String?) ?? 'Entrenamiento',

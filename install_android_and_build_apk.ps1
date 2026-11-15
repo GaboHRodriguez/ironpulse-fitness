@@ -59,11 +59,11 @@ $yesInputs | & "C:\src\flutter\bin\flutter.bat" doctor --android-licenses | Out-
 
 # 5. Compilar el APK Release y copiarlo a la raiz del proyecto
 Write-Host "[5/5] Compilando APK nativo de IronPulse Fitness..." -ForegroundColor Yellow
-Set-Location "c:\Users\gaboh\Proyectos Antigravity\ironpulse_fitness"
+Set-Location $PSScriptRoot
 & "C:\src\flutter\bin\flutter.bat" build apk --release
 
-$apkBuilt = "c:\Users\gaboh\Proyectos Antigravity\ironpulse_fitness\build\app\outputs\flutter-apk\app-release.apk"
-$apkEasyCopy = "c:\Users\gaboh\Proyectos Antigravity\ironpulse_fitness\IronPulse_Fitness_Android.apk"
+$apkBuilt = Join-Path $PSScriptRoot "build\app\outputs\flutter-apk\app-release.apk"
+$apkEasyCopy = Join-Path $PSScriptRoot "IronPulse_Fitness_Android.apk"
 
 if (Test-Path $apkBuilt) {
     Copy-Item $apkBuilt $apkEasyCopy -Force

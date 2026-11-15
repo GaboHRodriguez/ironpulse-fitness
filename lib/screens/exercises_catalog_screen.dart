@@ -317,12 +317,23 @@ class _ExercisesCatalogScreenState extends State<ExercisesCatalogScreen> {
               ),
             ],
             const SizedBox(height: 16),
-            // Animación Técnica Biomecánica + GIF
+            // Carrusel: 1. Ejecución Técnica + 2. Maniquí Anatómico Digital 3D
             ExerciseTechniqueAnimation(
               exercise: exercise,
-              height: 250,
+              height: 285,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 6),
+            const Center(
+              child: Text(
+                '💡 Desliza hacia el costado para alternar entre el Ejercicio y el Maniquí Muscular 3D',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11.5,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(

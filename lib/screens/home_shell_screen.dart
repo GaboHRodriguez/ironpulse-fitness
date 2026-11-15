@@ -4,6 +4,7 @@ import '../services/database_service.dart';
 import 'exercises_catalog_screen.dart';
 import 'progress_history_screen.dart';
 import 'routines_screen.dart';
+import 'welcome_username_screen.dart';
 import 'workout_session_screen.dart';
 
 class HomeShellScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class HomeShellScreen extends StatefulWidget {
 
 class _HomeShellScreenState extends State<HomeShellScreen> {
   late UserProfile _profile;
+  List<UserProfile> _allUsers = [];
   int _selectedIndex = 0;
 
   List<Routine> _routines = [];
@@ -31,19 +33,25 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
   void initState() {
     super.initState();
     _profile = widget.initialProfile;
+    DatabaseService.instance.currentGender = _profile.gender;
     _refreshDashboard();
   }
 
   Future<void> _refreshDashboard() async {
+    final updatedProfile = await DatabaseService.instance.getUserProfile();
+    final allUsers = await DatabaseService.instance.getAllUsers();
     final routines = await DatabaseService.instance.getAllRoutines();
     final sessions =
         await DatabaseService.instance.getWorkoutSessions(limit: 10);
     final exercises = await DatabaseService.instance.getAllExercises();
-    final updatedProfile = await DatabaseService.instance.getUserProfile();
 
     if (mounted) {
       setState(() {
-        if (updatedProfile != null) _profile = updatedProfile;
+        if (updatedProfile != null) {
+          _profile = updatedProfile;
+          DatabaseService.instance.currentGender = updatedProfile.gender;
+        }
+        _allUsers = allUsers;
         _routines = routines;
         _recentSessions = sessions;
         _totalCatalogExercises = exercises.length;
@@ -52,31 +60,86 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
     }
   }
 
-  Future<void> _showEditUsernameDialog() async {
-    final nameCtrl = TextEditingController(text: _profile.username);
-    String unit = _profile.weightUnit;
+  Future<void> _switchStudent(UserProfile targetUser) async {
+    if (targetUser.id == null || targetUser.id == _profile.id) return;
+    final switched =
+        await DatabaseService.instance.switchActiveUser(targetUser.id!);
+    if (switched != null && mounted) {
+      await _refreshDashboard();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(
+              'Alumno activo cambiado a: ${switched.username} (${switched.weightUnit})',
+            ),
+          ),
+        );
+      }
+    }
+  }
 
-    final updated = await showDialog<UserProfile>(
+  Future<UserProfile?> _showCreateOrEditUserDialog({
+    UserProfile? editingUser,
+  }) async {
+    final isEditing = editingUser != null;
+    final nameCtrl =
+        TextEditingController(text: isEditing ? editingUser.username : '');
+    String unit = isEditing ? editingUser.weightUnit : 'kg';
+    String gender = isEditing ? editingUser.gender : 'male';
+
+    return showDialog<UserProfile>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           backgroundColor: const Color(0xFF161D2B),
-          title: const Text('Personalización Interactiva'),
+          title: Text(
+            isEditing
+                ? 'Editar Alumno / Usuario'
+                : 'Nuevo Alumno / Usuario',
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Tu nombre se usa únicamente para saludarte y personalizar tu asistente sin cuentas ni contraseñas.',
+                'Sin contraseñas ni cuentas: identifica a cada alumno con su nombre o alias y selecciona su sexo para usar el Maniquí 3D correspondiente.',
                 style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 14),
               TextField(
                 controller: nameCtrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
-                  labelText: 'Tu Nombre o Apodo',
+                  labelText: 'Nombre o Alias del Alumno',
+                  hintText: 'Ej: Martín, Sofía, Carlos...',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Sexo del Alumno (Maniquí 3D):',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'male',
+                    icon: Icon(Icons.male_rounded),
+                    label: Text('Varón'),
+                  ),
+                  ButtonSegment(
+                    value: 'female',
+                    icon: Icon(Icons.female_rounded),
+                    label: Text('Mujer'),
+                  ),
+                ],
+                selected: {gender},
+                onSelectionChanged: (s) {
+                  setDialogState(() => gender = s.first);
+                },
               ),
               const SizedBox(height: 14),
               const Text(
@@ -86,8 +149,7 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
               const SizedBox(height: 8),
               SegmentedButton<String>(
                 segments: const [
-                  ButtonSegment(
-                      value: 'kg', label: Text('Kilogramos (kg)')),
+                  ButtonSegment(value: 'kg', label: Text('Kilogramos (kg)')),
                   ButtonSegment(value: 'lb', label: Text('Libras (lb)')),
                 ],
                 selected: {unit},
@@ -104,24 +166,284 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
             ),
             FilledButton(
               onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty) return;
-                final saved = await DatabaseService.instance
-                    .saveOrUpdateUserProfile(
-                  nameCtrl.text.trim(),
-                  weightUnit: unit,
-                );
-                Navigator.pop(ctx, saved);
+                final clean = nameCtrl.text.trim();
+                if (clean.isEmpty) return;
+                final UserProfile saved;
+                if (isEditing && editingUser.id != null) {
+                  saved = await DatabaseService.instance
+                      .saveOrUpdateUserProfile(
+                    clean,
+                    weightUnit: unit,
+                    gender: gender,
+                    userId: editingUser.id,
+                  );
+                } else {
+                  saved = await DatabaseService.instance.createOrSelectUser(
+                    clean,
+                    weightUnit: unit,
+                    gender: gender,
+                  );
+                }
+                if (ctx.mounted) {
+                  Navigator.pop(ctx, saved);
+                }
               },
-              child: const Text('Guardar'),
+              child: Text(isEditing ? 'Guardar Cambios' : 'Crear y Activar'),
             ),
           ],
         ),
       ),
     );
+  }
 
-    if (updated != null) {
-      setState(() => _profile = updated);
-    }
+  Future<void> _showUsersManagerModal() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF131926),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheetState) {
+          Future<void> reloadSheetUsers() async {
+            await _refreshDashboard();
+            if (sheetCtx.mounted) {
+              setSheetState(() {});
+            }
+          }
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.65,
+            minChildSize: 0.45,
+            maxChildSize: 0.9,
+            builder: (ctx, scrollCtrl) => ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.all(20),
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.groups_rounded,
+                      color: Color(0xFFCCFF00),
+                      size: 28,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Alumnos / Usuarios de la App',
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'Cambia de alumno en 1 toque sin contraseñas',
+                            style: TextStyle(
+                              color: Colors.white60,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        final created = await _showCreateOrEditUserDialog();
+                        if (created != null) {
+                          await reloadSheetUsers();
+                          if (sheetCtx.mounted) {
+                            Navigator.pop(sheetCtx);
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                      label: const Text('Nuevo Alumno'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ..._allUsers.map((u) {
+                  final isCurrent = u.id == _profile.id;
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(
+                        color: isCurrent
+                            ? const Color(0xFFCCFF00)
+                            : const Color(0xFF263248),
+                        width: isCurrent ? 1.8 : 1.0,
+                      ),
+                    ),
+                    child: ListTile(
+                      onTap: () async {
+                        Navigator.pop(sheetCtx);
+                        await _switchStudent(u);
+                      },
+                      leading: CircleAvatar(
+                        backgroundColor: isCurrent
+                            ? const Color(0xFFCCFF00)
+                            : const Color(0xFF00E5FF).withOpacity(0.18),
+                        foregroundColor:
+                            isCurrent ? Colors.black : const Color(0xFF00E5FF),
+                        child: Text(
+                          u.username.isNotEmpty
+                              ? u.username[0].toUpperCase()
+                              : 'U',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      title: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              u.username,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${u.genderLabel} • ${u.weightUnit.toUpperCase()}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.white70,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (isCurrent) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFCCFF00),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'ACTIVO',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Text(
+                        isCurrent
+                            ? 'Viendo sus rutinas, pesos e historial ahora'
+                            : 'Toca para cambiar a este alumno',
+                        style: TextStyle(
+                          color: isCurrent
+                              ? const Color(0xFFCCFF00)
+                              : Colors.white54,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Editar nombre o unidad',
+                            icon: const Icon(Icons.edit_outlined,
+                                color: Colors.white70, size: 20),
+                            onPressed: () async {
+                              final edited = await _showCreateOrEditUserDialog(
+                                editingUser: u,
+                              );
+                              if (edited != null) {
+                                await reloadSheetUsers();
+                              }
+                            },
+                          ),
+                          IconButton(
+                            tooltip: 'Eliminar alumno',
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.redAccent, size: 20),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (dCtx) => AlertDialog(
+                                  backgroundColor: const Color(0xFF161D2B),
+                                  title: const Text('Eliminar Alumno'),
+                                  content: Text(
+                                    '¿Seguro que deseas eliminar a "${u.username}" junto con sus rutinas y sesiones registradas?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(dCtx, false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    FilledButton(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: Colors.redAccent,
+                                      ),
+                                      onPressed: () =>
+                                          Navigator.pop(dCtx, true),
+                                      child: const Text('Eliminar'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true && u.id != null) {
+                                final nextActive = await DatabaseService
+                                    .instance
+                                    .deleteUserProfile(u.id!);
+                                if (nextActive == null) {
+                                  if (sheetCtx.mounted) {
+                                    Navigator.pop(sheetCtx);
+                                  }
+                                  if (mounted) {
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const WelcomeUsernameScreen(),
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  await reloadSheetUsers();
+                                }
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   String _getInteractiveGreeting() {
@@ -164,12 +486,15 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            const Text(
-              'IRONPULSE ASSISTANT',
-              style: TextStyle(
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.8,
-                fontSize: 17,
+            const Flexible(
+              child: Text(
+                'IRONPULSE ASSISTANT',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  fontSize: 17,
+                ),
               ),
             ),
           ],
@@ -178,12 +503,18 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: ActionChip(
-              avatar: const Icon(Icons.person, size: 17, color: Color(0xFFCCFF00)),
+              avatar: Icon(
+                _profile.isFemale
+                    ? Icons.female_rounded
+                    : Icons.male_rounded,
+                size: 18,
+                color: const Color(0xFFCCFF00),
+              ),
               label: Text(
-                '${_profile.username} (${_profile.weightUnit})',
+                '${_profile.username} (${_profile.genderLabel} • ${_profile.weightUnit}) ▾',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              onPressed: _showEditUsernameDialog,
+              onPressed: _showUsersManagerModal,
             ),
           ),
         ],
@@ -193,6 +524,106 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Barra Rápida de Cambio de Alumno / Entrenador
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141B29),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF26334D)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.switch_account_rounded,
+                        size: 18,
+                        color: Color(0xFF00E5FF),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Alumnos Registrados (${_allUsers.length})',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFF00E5FF),
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () async {
+                          final created = await _showCreateOrEditUserDialog();
+                          if (created != null) {
+                            await _refreshDashboard();
+                          }
+                        },
+                        icon: const Icon(Icons.person_add_alt_1_rounded,
+                            size: 16),
+                        label: const Text('Agregar Alumno'),
+                      ),
+                      IconButton(
+                        tooltip: 'Gestionar todos los alumnos',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.settings_outlined,
+                            size: 18, color: Colors.white70),
+                        onPressed: _showUsersManagerModal,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _allUsers.map((u) {
+                        final selected = u.id == _profile.id;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            selected: selected,
+                            selectedColor:
+                                const Color(0xFFCCFF00).withOpacity(0.25),
+                            avatar: CircleAvatar(
+                              backgroundColor: selected
+                                  ? const Color(0xFFCCFF00)
+                                  : Colors.white24,
+                              foregroundColor:
+                                  selected ? Colors.black : Colors.white,
+                              child: Text(
+                                u.username.isNotEmpty
+                                    ? u.username[0].toUpperCase()
+                                    : 'U',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            label: Text(
+                              u.username,
+                              style: TextStyle(
+                                fontWeight: selected
+                                    ? FontWeight.w900
+                                    : FontWeight.w600,
+                                color: selected
+                                    ? const Color(0xFFCCFF00)
+                                    : Colors.white,
+                              ),
+                            ),
+                            onSelected: (_) => _switchStudent(u),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             // Banner de Saludo Interactivo Personalizado
             Container(
               padding: const EdgeInsets.all(20),
@@ -408,12 +839,16 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
     final pages = [
       _buildDashboardTab(),
       RoutinesScreen(
+        key: ValueKey('routines_${_profile.id}_${_profile.username}_${_profile.gender}'),
         username: _profile.username,
         weightUnit: _profile.weightUnit,
         onDataChanged: _refreshDashboard,
       ),
-      const ExercisesCatalogScreen(),
+      ExercisesCatalogScreen(
+        key: ValueKey('catalog_${_profile.id}_${_profile.gender}'),
+      ),
       ProgressHistoryScreen(
+        key: ValueKey('progress_${_profile.id}_${_profile.username}'),
         username: _profile.username,
         weightUnit: _profile.weightUnit,
       ),
